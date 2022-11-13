@@ -1,11 +1,10 @@
 #################################################################################
 #                                                                               #
-# TODO: Get auth                                                                #
 # TODO: Use command line inputs, then perhaps bash script                       #
-# TODO: Try rewriting logging function                                          #
 # TODO: Use different params for getrecenttracks (maybe)                        #
 # TODO: Use try catch pls                                                       #  
 # TODO: Save user's session key to file (if usable still)                       #
+# TODO: Fix updateNowPlaying for when the same song is on repeat                #
 #                                                                               #
 #################################################################################
 
@@ -14,6 +13,7 @@ import webbrowser
 import requests
 import logging
 import hashlib
+import time
 
 # Create and configure logger
 logging.basicConfig(filename="lfmdsLog.log",
@@ -21,7 +21,7 @@ logging.basicConfig(filename="lfmdsLog.log",
                     filemode='w')
  
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.CRITICAL)
 
 configObj = json.load(open('./config.json', 'r'))
 
@@ -84,7 +84,6 @@ def getUserPermission(token):
             pass
     
 
-
 def getSessionKey(token):
     auth_sig = "api_key" + LAST_FM_API_KEY + "methodauth.getSessiontoken" + token + configObj["secret"]
     md5String = hashlib.md5(auth_sig.encode('utf-8')).hexdigest()
@@ -98,16 +97,55 @@ def getSessionKey(token):
     return respContent["session"]["key"] 
 
 
+def scrobbleSong(songName, artistName, album, timestamp, sessionKey):
+    auth_sig = "album" + album + "api_key" + LAST_FM_API_KEY + "artist" + artistName + "methodtrack.scrobblesk" + sessionKey + "timestamp" + timestamp + "track" + songName + configObj["secret"]
+    md5String = hashlib.md5(auth_sig.encode('utf-8')).hexdigest()
+    url = "%s?method=track.scrobble&api_key=%s&sk=%s&track=%s&artist=%s&album=%s&timestamp=%s&api_sig=%s&format=json" % (LAST_FM_API_BASE, LAST_FM_API_KEY, sessionKey, songName, artistName, album, timestamp, md5String)
+    resp = requests.post(url)
+    try:
+        respContent = resp.json()
+        log(respContent)
+    except Exception as e:
+        log(e)
+
+def updateNowPlaying(songName, artistName, album, sessionKey):
+    auth_sig = "album" + album + "api_key" + LAST_FM_API_KEY + "artist" + artistName + "methodtrack.updateNowPlaying" + "sk" + sessionKey + "track" + songName + configObj["secret"]
+    md5String = hashlib.md5(auth_sig.encode('utf-8')).hexdigest()
+    resp = requests.post("%s?method=track.updateNowPlaying&api_key=%s&sk=%s&track=%s&artist=%s&album=%s&api_sig=%s&format=json" % (LAST_FM_API_BASE, LAST_FM_API_KEY, sessionKey, songName, artistName, album, md5String))
+    try:
+        respContent = resp.json()
+        log(respContent)
+    except Exception as e:
+        log(e)
+    
+
 def testing():
     token = getToken()
     print(token)
     getUserPermission(token)
     sessionKey = getSessionKey(token)
+    print(sessionKey)
 
 
-testing()
 
 def main():
+
+    currentlyPlayingProgram = {
+        "name" : "",
+        "artist" : "",
+        "album" : "",
+    }
+    lastPlayedSongProgram = {
+        "name" : "",
+        "artist" : "",
+        "album" : "",
+        "timestamp" : ""
+    }
+
+    token = getToken()
+    #getUserPermission(token)
+    sessionKey = configObj["sessionKey"] #getSessionKey(token) 
+
     resp = requests.get(GET_RECENT_TRACKS_URL)
     respCode = resp.status_code
 
@@ -124,20 +162,103 @@ def main():
 
     log(respContent)
 
-    latestTrack = respContent["recenttracks"]["track"][0] 
+    latestTrackOnLastFm = respContent["recenttracks"]["track"][0] 
     try:
         isPlaying = respContent["recenttracks"]["track"][0]["@attr"]["nowplaying"]
     except KeyError as e:
         log("Could not find nowplaying")
         log("%s is probably not currently listening" % USER_TO_LISTEN)
         log(e)
-        exit()
+        isPlaying = "false"
+
+    
+
+    timestamp = str(int(time.time()))
 
     if isPlaying == "true":
-        print("%s is currently listening to %s by %s" % (USER_TO_LISTEN, latestTrack["name"], latestTrack["artist"]["#text"]))
+        currentlyPlayingProgram["name"] = latestTrackOnLastFm["name"]
+        currentlyPlayingProgram["artist"] = latestTrackOnLastFm["artist"]["#text"]
+        currentlyPlayingProgram["album"] = latestTrackOnLastFm["album"]["#text"]
     else:
-        print("%s is not currently listening to anything" % USER_TO_LISTEN)
+        lastPlayedSongProgram["name"] = latestTrackOnLastFm["name"]
+        lastPlayedSongProgram["artist"] = latestTrackOnLastFm["artist"]["#text"]
+        lastPlayedSongProgram["album"] = latestTrackOnLastFm["album"]["#text"]
+        lastPlayedSongProgram["timestamp"] = latestTrackOnLastFm["date"]["uts"]
+        
+    # Bad code i know
+    while True:
+        resp = requests.get(GET_RECENT_TRACKS_URL)
+        respCode = resp.status_code
 
-    getToken()
+        # Just some error handling
+        if respCode != 200:
+            log("Bad response")
+            exit()
+        # Logging for debugging purposes
+        log("Status code for GET_RECENT_TRACKS %s" % (str(respCode)))
+        try:
+            respContent = resp.json()
+        except Exception as e:
+            log(e)
 
-#main()
+        latestTrackOnLastFm = respContent["recenttracks"]["track"][0] 
+        try:
+            isPlaying = respContent["recenttracks"]["track"][0]["@attr"]["nowplaying"]
+            log("Currently playing")
+        except KeyError as e:
+            log("Could not find nowplaying")
+            log("%s is probably not currently listening" % USER_TO_LISTEN)
+            log(e)
+            isPlaying = "false"
+
+        currentlyPlayingOnLastFm = {
+            "name" : "",
+            "artist" : "",
+            "album" : "",
+        }
+        lastPlayedSongOnLastFm = {
+            "name" : "",
+            "artist" : "",
+            "album" : "",
+            "timestamp" : ""
+        }
+
+        log("Track 0")
+        log(respContent["recenttracks"]["track"][0])
+        log("Track 1")
+        log(respContent["recenttracks"]["track"][1])
+
+        log("Currently playing on program")
+        log(currentlyPlayingProgram)
+        log("Last played song on program")
+        log(lastPlayedSongProgram)
+
+        timestamp = str(int(time.time()))
+
+        if isPlaying == "true":
+            currentlyPlayingOnLastFm["name"] = latestTrackOnLastFm["name"]
+            currentlyPlayingOnLastFm["artist"] = latestTrackOnLastFm["artist"]["#text"]
+            currentlyPlayingOnLastFm["album"] = latestTrackOnLastFm["album"]["#text"]
+            lastPlayedSongOnLastFm["name"] = respContent["recenttracks"]["track"][1]["name"]
+            lastPlayedSongOnLastFm["artist"] = respContent["recenttracks"]["track"][1]["artist"]["#text"]
+            lastPlayedSongOnLastFm["album"] = respContent["recenttracks"]["track"][1]["album"]["#text"]
+            lastPlayedSongOnLastFm["timestamp"] = respContent["recenttracks"]["track"][1]["date"]["uts"]
+            if currentlyPlayingProgram["name"] != currentlyPlayingOnLastFm["name"]: #temporary >:(
+                updateNowPlaying(currentlyPlayingOnLastFm["name"], currentlyPlayingOnLastFm["artist"], currentlyPlayingOnLastFm["album"], sessionKey)
+                currentlyPlayingProgram = currentlyPlayingOnLastFm
+        else:
+            lastPlayedSongOnLastFm["name"] = latestTrackOnLastFm["name"]
+            lastPlayedSongOnLastFm["artist"] = latestTrackOnLastFm["artist"]["#text"]
+            lastPlayedSongOnLastFm["album"] = latestTrackOnLastFm["album"]["#text"]
+            lastPlayedSongOnLastFm["timestamp"] = latestTrackOnLastFm["date"]["uts"]
+
+        if lastPlayedSongProgram != lastPlayedSongOnLastFm:
+            if lastPlayedSongProgram["timestamp"] != lastPlayedSongOnLastFm["timestamp"]:
+                scrobbleSong(lastPlayedSongOnLastFm["name"], lastPlayedSongOnLastFm["artist"], lastPlayedSongOnLastFm["album"], lastPlayedSongOnLastFm["timestamp"], sessionKey)
+                lastPlayedSongProgram = lastPlayedSongOnLastFm
+
+        time.sleep(1)
+
+
+
+main()
