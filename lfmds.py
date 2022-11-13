@@ -5,6 +5,8 @@
 # TODO: Use try catch pls                                                       #  
 # TODO: Save user's session key to file (if usable still)                       #
 # TODO: Fix updateNowPlaying for when the same song is on repeat                #
+# TODO: Maybe constantly send updateNowPlaying requests, or every other loop    #
+#       iteration.                                                              #
 #                                                                               #
 #################################################################################
 
@@ -193,7 +195,10 @@ def main():
         # Just some error handling
         if respCode != 200:
             log("Bad response")
-            exit()
+            log(resp.json())
+            logger.critical("Bad response from get recent tracks")
+            time.sleep(10)
+            continue
         # Logging for debugging purposes
         log("Status code for GET_RECENT_TRACKS %s" % (str(respCode)))
         try:
