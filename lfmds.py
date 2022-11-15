@@ -7,6 +7,10 @@
 # TODO: Fix updateNowPlaying for when the same song is on repeat                #
 # TODO: Maybe constantly send updateNowPlaying requests, or every other loop    #
 #       iteration.                                                              #
+# TODO: Check if GET request works on user authentication, instead of waiting   #
+#       for user to press enter                                                 #
+# TODO: Write code to translate Last.fm API error codes to human readable       #
+#       error messages                                                          #
 #                                                                               #
 #################################################################################
 
@@ -16,6 +20,7 @@ import requests
 import logging
 import hashlib
 import time
+import sys
 
 # Create and configure logger
 logging.basicConfig(filename="lfmdsLog.log",
@@ -26,6 +31,18 @@ logger = logging.getLogger()
 logger.setLevel(logging.CRITICAL)
 
 configObj = json.load(open('./config.json', 'r'))
+
+sessionKey = configObj["sessionKeyW"]
+
+try:
+    if sys.argv[1] == "w":
+        pass
+    elif sys.argv[1] == "e":
+        sessionKey = configObj["sessionKeyE"]
+except:
+    logger.info("No command line argument given, using default session key")
+    pass
+
 
 # Fun api stuff
 LAST_FM_API_KEY = configObj["apiKey"]  #Get from config.json, but first get a key 
@@ -57,46 +74,6 @@ def recLog(s, tabs):
 def log(s):
     recLog(s, "")
 
-def getTokenSignature():
-    signatureString = "api_key" + LAST_FM_API_KEY + "methodauth.getToken" + configObj["secret"]
-    md5String = hashlib.md5(signatureString.encode('utf-8')).hexdigest()
-    return md5String
-    
-
-def getToken():
-    signature = getTokenSignature()
-    url = "%s?method=auth.getToken&api_key=%s&api_sig=%s&format=json" % (LAST_FM_API_BASE, LAST_FM_API_KEY, signature)
-    resp = requests.get(url)
-    try:
-        respContent = resp.json()
-        log(respContent)
-    except:
-        log("Could not get token")
-    return respContent["token"]
-
-def getUserPermission(token):
-    url = "http://www.last.fm/api/auth/?api_key=%s&token=%s" % (LAST_FM_API_KEY, token)
-    webbrowser.open(url, new = 0, autoraise = True)
-    print("Please allow access to your account")
-    while True:
-        try:
-            input("Press enter when you have allowed access")
-            break
-        except:
-            pass
-    
-
-def getSessionKey(token):
-    auth_sig = "api_key" + LAST_FM_API_KEY + "methodauth.getSessiontoken" + token + configObj["secret"]
-    md5String = hashlib.md5(auth_sig.encode('utf-8')).hexdigest()
-    url = "%s?method=auth.getSession&api_key=%s&token=%s&format=json&api_sig=%s" % (LAST_FM_API_BASE, LAST_FM_API_KEY, token, md5String)
-    resp = requests.get(url)
-    try:
-        respContent = resp.json()
-        log(respContent)
-    except Exception as e:
-        log(e)
-    return respContent["session"]["key"] 
 
 
 def scrobbleSong(songName, artistName, album, timestamp, sessionKey):
@@ -121,15 +98,6 @@ def updateNowPlaying(songName, artistName, album, sessionKey):
         log(e)
     
 
-def testing():
-    token = getToken()
-    print(token)
-    getUserPermission(token)
-    sessionKey = getSessionKey(token)
-    print(sessionKey)
-
-
-
 def main():
 
     currentlyPlayingProgram = {
@@ -143,10 +111,6 @@ def main():
         "album" : "",
         "timestamp" : ""
     }
-
-    token = getToken()
-    #getUserPermission(token)
-    sessionKey = configObj["sessionKey"] #getSessionKey(token) 
 
     resp = requests.get(GET_RECENT_TRACKS_URL)
     respCode = resp.status_code
@@ -181,6 +145,7 @@ def main():
         currentlyPlayingProgram["name"] = latestTrackOnLastFm["name"]
         currentlyPlayingProgram["artist"] = latestTrackOnLastFm["artist"]["#text"]
         currentlyPlayingProgram["album"] = latestTrackOnLastFm["album"]["#text"]
+        updateNowPlaying(currentlyPlayingProgram["name"], currentlyPlayingProgram["artist"], currentlyPlayingProgram["album"], sessionKey)
     else:
         lastPlayedSongProgram["name"] = latestTrackOnLastFm["name"]
         lastPlayedSongProgram["artist"] = latestTrackOnLastFm["artist"]["#text"]
@@ -188,6 +153,7 @@ def main():
         lastPlayedSongProgram["timestamp"] = latestTrackOnLastFm["date"]["uts"]
         
     # Bad code i know
+    counter = 0
     while True:
         resp = requests.get(GET_RECENT_TRACKS_URL)
         respCode = resp.status_code
@@ -238,8 +204,6 @@ def main():
         log("Last played song on program")
         log(lastPlayedSongProgram)
 
-        timestamp = str(int(time.time()))
-
         if isPlaying == "true":
             currentlyPlayingOnLastFm["name"] = latestTrackOnLastFm["name"]
             currentlyPlayingOnLastFm["artist"] = latestTrackOnLastFm["artist"]["#text"]
@@ -248,9 +212,13 @@ def main():
             lastPlayedSongOnLastFm["artist"] = respContent["recenttracks"]["track"][1]["artist"]["#text"]
             lastPlayedSongOnLastFm["album"] = respContent["recenttracks"]["track"][1]["album"]["#text"]
             lastPlayedSongOnLastFm["timestamp"] = respContent["recenttracks"]["track"][1]["date"]["uts"]
-            if currentlyPlayingProgram["name"] != currentlyPlayingOnLastFm["name"]: #temporary >:(
+            # Ignore following comment for now
+            # Commenting this out, if it works, can probably remove currentlyPlayingObjects
+            if currentlyPlayingProgram["name"] != currentlyPlayingOnLastFm["name"] or counter >= 30: #temporary >:(
                 updateNowPlaying(currentlyPlayingOnLastFm["name"], currentlyPlayingOnLastFm["artist"], currentlyPlayingOnLastFm["album"], sessionKey)
                 currentlyPlayingProgram = currentlyPlayingOnLastFm
+                counter = 0
+                logger.info("Updated now playing")
         else:
             lastPlayedSongOnLastFm["name"] = latestTrackOnLastFm["name"]
             lastPlayedSongOnLastFm["artist"] = latestTrackOnLastFm["artist"]["#text"]
@@ -263,6 +231,7 @@ def main():
                 lastPlayedSongProgram = lastPlayedSongOnLastFm
 
         time.sleep(1)
+        counter += 1
 
 
 
