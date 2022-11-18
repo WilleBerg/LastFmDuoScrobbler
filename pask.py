@@ -6,43 +6,17 @@ import requests
 import logging
 import hashlib
 import time
+import s_logging
+
+s_logging.setup("paskLog.log", 10) # 10 = DEBUG
+log = s_logging.log
+
+log("Log setup complete")
 
 configObj = json.load(open('./config.json', 'r'))
 
 LAST_FM_API_KEY = configObj["apiKey"]  #Get from config.json, but first get a key 
 LAST_FM_API_BASE = "http://ws.audioscrobbler.com/2.0/"
-
-###############################################################################
-#                          LOGGING CONFIGURATION                              #
-###############################################################################
-
-logging.basicConfig(filename="paskLog.log",
-                    format='%(asctime)s %(message)s',
-                    filemode='w')
- 
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
-
-def recLog(s, tabs):
-    if type(s) != dict and type(s) != list:
-       logger.debug(tabs + str(s)) 
-       return
-    if type(s) == list:
-        logger.debug(tabs + "[")
-        for item in s:
-            recLog(item, tabs + "    ")
-        logger.debug(tabs + "]")
-    if type(s) == dict:
-        logger.debug(tabs + "{")
-        for key, value in s.items():
-            logger.debug(tabs + str(key) + " : ")
-            recLog(value, tabs + "    ")
-        logger.debug(tabs + "}")
-
-
-
-def log(s):
-    recLog(s, "")
 
 ###############################################################################
 #                                  MAIN                                       #
@@ -52,7 +26,6 @@ def getTokenSignature():
     signatureString = "api_key" + LAST_FM_API_KEY + "methodauth.getToken" + configObj["secret"]
     md5String = hashlib.md5(signatureString.encode('utf-8')).hexdigest()
     return md5String
-    
 
 def getToken():
     signature = getTokenSignature()
@@ -68,6 +41,8 @@ def getToken():
 def getUserPermission(token):
     url = "http://www.last.fm/api/auth/?api_key=%s&token=%s" % (LAST_FM_API_KEY, token)
     webbrowser.open(url, new = 0, autoraise = True)
+    #resp = requests.get(url)
+    #log(resp.json())
     print("Please allow access to your account")
     while True:
         try:

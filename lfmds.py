@@ -15,28 +15,28 @@
 #################################################################################
 
 import json
-import webbrowser
 import requests
 import logging
 import hashlib
 import time
 import sys
+import s_logging
 
 # Create and configure logger
-logging.basicConfig(filename="lfmdsLog.log",
-                    format='%(asctime)s %(message)s',
-                    filemode='w')
- 
-logger = logging.getLogger()
-logger.setLevel(logging.CRITICAL)
+
+s_logging.setup("lfmdsLog.log", 10) # 10 == DEBUG
+log = s_logging.log
+logger = s_logging.logger
+
+log("Log setup complete starting lfmds.py")
 
 configObj = json.load(open('./config.json', 'r'))
 
-sessionKey = configObj["sessionKeyW"]
+sessionKey = configObj["sessionKey"]
 
 try:
     if sys.argv[1] == "w":
-        pass
+        sessionKey = configObj["sessionKeyW"]
     elif sys.argv[1] == "e":
         sessionKey = configObj["sessionKeyE"]
 except:
